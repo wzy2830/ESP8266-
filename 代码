@@ -1,0 +1,136 @@
+#define BLINKER_PRINT Serial
+#define BLINKER_WIFI
+#define BLINKER_MIOT_OUTLET
+
+#include <Blinker.h>
+#include <Arduino.h>
+#include <IRrecv.h>
+#include <IRremoteESP8266.h>
+#include <IRutils.h>
+#include <Servo.h>
+
+char auth[] = "57332143f8c0";  //设备密钥
+char ssid[] = "███";  //WIFI名称
+char pswd[] = "888812345";  //WIFI密码
+
+// 定义引脚
+const int LED = D1;
+const uint16_t kRecvPin = 14;  // 红外 D5
+const int LDR = A0;
+const int SERVO = 13;  // 舵机  D7
+
+IRrecv irrecv(kRecvPin);
+decode_results results;
+Servo myservo;
+
+// 新建组件对象
+BlinkerButton btnTurn("btnTurn");
+BlinkerNumber numTime("numTime");
+BlinkerNumber numPer("numPer");
+BlinkerNumber numLDR("numLDR");
+BlinkerSlider ranPer("ranPer");
+
+long counter = 0;
+int angle = 0;
+const int angle_cen = 85;
+const int angle_max = 160;
+const int angle_min = 5;
+
+// 自定义程序
+void LED_Blink(){
+    digitalWrite(LED_BUILTIN, LOW);
+    digitalWrite(LED, HIGH);
+    delay(150);
+    digitalWrite(LED_BUILTIN, HIGH);
+    digitalWrite(LED, LOW);
+}
+
+void doServo(int value){
+    numTime.print(counter);
+    angle = value;
+    myservo.write(value);
+    numPer.print(value);
+}
+
+
+// 小爱
+void miotPowerState(const String & state)
+{
+    BLINKER_LOG("need set power state: ", state);
+
+    if (state == BLINKER_CMD_ON) {
+        BlinkerMIOT.powerState("on");
+        BlinkerMIOT.print();
+        btnTurn_callback("on");
+    }
+    else if (state == BLINKER_CMD_OFF) {
+        BlinkerMIOT.powerState("off");
+        BlinkerMIOT.print();
+        btnTurn_callback("off");
+    }
+}
+
+// 按下按键即会执行该函数
+void btnTurn_callback(const String & state) {
+    BLINKER_LOG("get button state: ", state);
+    LED_Blink();
+    if (counter%2){
+        doServo(angle_max);
+    }
+    else{
+        doServo(angle_min);
+    }
+    Blinker.delay(400);
+    doServo(angle_cen);
+    counter++;
+}
+
+void ranPer_callback(int32_t value){
+    BLINKER_LOG("get ran state: ", value);
+    LED_Blink();
+    doServo(value);
+}
+
+// 如果未绑定的组件被触发，则会执行其中内容
+void dataRead(const String & data)
+{
+    BLINKER_LOG("Blinker readString: ", data);
+    
+}
+
+void setup() {
+    // 初始化串口
+    Serial.begin(115200);
+
+    #if defined(BLINKER_PRINT)
+        BLINKER_DEBUG.stream(BLINKER_PRINT);
+    #endif
+
+    irrecv.enableIRIn();  // 红外初始化
+    myservo.attach(SERVO);
+    
+    // 初始化有LED的IO
+    pinMode(LED_BUILTIN, OUTPUT);
+    digitalWrite(LED_BUILTIN, HIGH);
+    pinMode(LED, OUTPUT);
+    digitalWrite(LED, LOW);
+    
+    // 初始化blinker
+    Blinker.begin(auth, ssid, pswd);
+    Blinker.attachData(dataRead);
+    BlinkerMIOT.attachPowerState(miotPowerState);
+    btnTurn.attach(btnTurn_callback);
+    ranPer.attach(ranPer_callback);
+}
+
+void loop() {
+    Blinker.run();
+    // IR
+    if (irrecv.decode(&results)) {
+        if ((uint16_t)results.value == 41565){
+            btnTurn_callback("on");
+        }
+        irrecv.resume();
+    }
+    delay(100);
+}
